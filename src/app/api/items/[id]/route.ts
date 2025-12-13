@@ -34,13 +34,15 @@ export async function PATCH(
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    const updates: any = {};
-    if (body.isRead !== undefined) updates.isRead = body.isRead;
-    if (body.isFavorite !== undefined) updates.isFavorite = body.isFavorite;
+    const updates: Partial<typeof items.$inferInsert> = {};
+    
+    // Only add to updates if explicitly provided and is a boolean
+    if (typeof body.isRead === "boolean") updates.isRead = body.isRead;
+    if (typeof body.isFavorite === "boolean") updates.isFavorite = body.isFavorite;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
-        { error: "no updates provided" },
+        { error: "no valid updates provided" },
         { status: 400 }
       );
     }
@@ -50,6 +52,10 @@ export async function PATCH(
       .set(updates)
       .where(eq(items.id, id))
       .returning();
+
+    if (!updated) {
+      return NextResponse.json({ error: "item not found" }, { status: 404 });
+    }
 
     return NextResponse.json(updated, { status: 200 });
   } catch (e) {

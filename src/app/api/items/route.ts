@@ -3,6 +3,16 @@ import { db } from "@/db";
 import { items } from "@/db/schema";
 import { desc } from "drizzle-orm";
 
+// Compile regex patterns once for better performance
+const OG_TITLE_REGEX = /<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i;
+const TITLE_REGEX = /<title[^>]*>([^<]+)<\/title>/i;
+const OG_DESC_REGEX = /<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i;
+const DESC_REGEX = /<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i;
+const FLEX_DESC_REGEX = /<meta\s+(?:property|name)=["'](?:og:)?description["']\s+content=["']([^"']{10,}?)["']/i;
+const DESC_FIRST_REGEX = /<meta\s+content=["']([^"']{10,}?)["']\s+(?:property|name)=["'](?:og:)?description["']/i;
+const OG_IMAGE_REGEX = /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i;
+const TWITTER_IMAGE_REGEX = /<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i;
+
 async function fetchMetadata(url: string) {
   try {
     const controller = new AbortController();
@@ -18,80 +28,28 @@ async function fetchMetadata(url: string) {
     });
 
     clearTimeout(timeoutId);
-
     if (!res.ok) return {};
 
     const html = await res.text();
 
-    // Extract title - try multiple approaches
-    let title: string | null = null;
-
-    // Try og:title first
-    const ogTitleMatch = html.match(
-      /<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i
-    );
-    title = ogTitleMatch?.[1]?.trim() || null;
-
-    // Fall back to <title> tag
+    // Extract title
+    let title = html.match(OG_TITLE_REGEX)?.[1]?.trim();
     if (!title) {
-      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-      title = titleMatch?.[1]?.trim() || null;
+      title = html.match(TITLE_REGEX)?.[1]?.trim();
     }
-
-    // Clean up title (remove common suffixes like " - Website", " | Company")
     if (title) {
-      title = title
-        .replace(/\s*[-|]\s*(.*?)$/, "") // Remove everything after - or |
-        .trim();
+      title = title.replace(/\s*[-|]\s*(.*?)$/, "").trim();
     }
 
-    // Extract description from meta tags - try multiple approaches
-    let description: string | null = null;
+    // Extract description
+    let description = html.match(OG_DESC_REGEX)?.[1]?.trim();
+    if (!description) description = html.match(DESC_REGEX)?.[1]?.trim();
+    if (!description) description = html.match(FLEX_DESC_REGEX)?.[1]?.trim();
+    if (!description) description = html.match(DESC_FIRST_REGEX)?.[1]?.trim();
 
-    // Try og:description first
-    const ogDescMatch = html.match(
-      /<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i
-    );
-    description = ogDescMatch?.[1]?.trim() || null;
-
-    // Fall back to name="description"
-    if (!description) {
-      const descMatch = html.match(
-        /<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i
-      );
-      description = descMatch?.[1]?.trim() || null;
-    }
-
-    // Try with more flexible whitespace handling
-    if (!description) {
-      const flexDescMatch = html.match(
-        /<meta\s+(?:property|name)=["'](?:og:)?description["']\s+content=["']([^"']{10,}?)["']/i
-      );
-      description = flexDescMatch?.[1]?.trim() || null;
-    }
-
-    // Try with content attribute first
-    if (!description) {
-      const contentFirstMatch = html.match(
-        /<meta\s+content=["']([^"']{10,}?)["']\s+(?:property|name)=["'](?:og:)?description["']/i
-      );
-      description = contentFirstMatch?.[1]?.trim() || null;
-    }
-
-    // Extract image from og:image, twitter:image, or apple-touch-icon
-    let image: string | null = null;
-
-    const ogImageMatch = html.match(
-      /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i
-    );
-    image = ogImageMatch?.[1]?.trim() || null;
-
-    if (!image) {
-      const twitterImageMatch = html.match(
-        /<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i
-      );
-      image = twitterImageMatch?.[1]?.trim() || null;
-    }
+    // Extract image
+    let image = html.match(OG_IMAGE_REGEX)?.[1]?.trim();
+    if (!image) image = html.match(TWITTER_IMAGE_REGEX)?.[1]?.trim();
 
     return {
       title: title || null,
@@ -142,6 +100,15 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  const rows = await db.select().from(items).orderBy(desc(items.createdAt));
-  return NextResponse.json(rows);
+  try {
+    const rows = await db.select().from(items).orderBy(desc(items.createdAt));
+    return NextResponse.json(rows, { 
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      }
+    });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "server error" }, { status: 500 });
+  }
 }

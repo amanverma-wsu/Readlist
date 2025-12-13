@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AuthModal } from "@/components/auth-modal";
 
 type Item = {
   id: string;
@@ -17,40 +18,46 @@ type Item = {
 
 type SortOption = "date" | "title" | "domain" | "lastRead";
 
+const faviconCache = new Map<string, string>();
+
 function favicon(domain?: string | null) {
   if (!domain) return null;
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  if (faviconCache.has(domain)) return faviconCache.get(domain)!;
+  const url = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  faviconCache.set(domain, url);
+  return url;
 }
 
 function useDebounce<T>(value: T, delay: number) {
   const [debouncedValue, setDebouncedValue] = useState(value);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => clearTimeout(handler);
+    timeoutRef.current = setTimeout(() => setDebouncedValue(value), delay);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, [value, delay]);
 
   return debouncedValue;
 }
 
 function HighlightText({ text, query }: { text: string; query: string }) {
-  if (!query.trim()) return <>{text}</>;
-
-  const parts = text.split(new RegExp(`(${query})`, "gi"));
-  return (
-    <>
-      {parts.map((part, i) =>
-        part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={i}>{part}</mark>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </>
-  );
+  return useMemo(() => {
+    if (!query.trim()) return <>{text}</>;
+    const parts = text.split(new RegExp(`(${query})`, "gi"));
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.toLowerCase() === query.toLowerCase() ? (
+            <mark key={i}>{part}</mark>
+          ) : (
+            <span key={i}>{part}</span>
+          )
+        )}
+      </>
+    );
+  }, [text, query]);
 }
 
 export default function Home() {
@@ -62,7 +69,13 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("date");
+  const [authOpen, setAuthOpen] = useState(false);
+  const [user, setUser] = useState<{ email: string } | null>(null);
   const searchInput = useDebounce(q, 300);
+  const searchInputLower = useMemo(() => searchInput.trim().toLowerCase(), [searchInput]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // theme init
   useEffect(() => {
@@ -84,10 +97,11 @@ export default function Home() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        document.querySelector<HTMLInputElement>(".searchWrap input")?.focus();
-      }
-      if (e.key === "Escape" && document.activeElement?.className.includes("input")) {
-        (document.activeElement as HTMLInputElement).blur();
+        searchInputRef.current?.focus();
+      } else if (e.key === "Escape" && document.activeElement instanceof HTMLInputElement) {
+        if ((document.activeElement as HTMLInputElement).className.includes("input")) {
+          (document.activeElement as HTMLInputElement).blur();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -113,7 +127,7 @@ export default function Home() {
     refresh();
   }, []);
 
-  async function saveItem() {
+  const saveItem = useCallback(async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
 
@@ -139,105 +153,94 @@ export default function Home() {
     } finally {
       setSaving(false);
     }
-  }
+  }, [url]);
 
-  async function deleteItem(id: string) {
+  const deleteItem = useCallback((id: string) => {
     const prev = items;
-    setItems(prev.filter((x) => x.id !== id));
+    setItems((prev) => prev.filter((x) => x.id !== id));
 
-    const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
-    if (!res.ok) {
+    fetch(`/api/items/${id}`, { method: "DELETE" }).then((res) => {
+      if (!res.ok) {
+        setItems(prev);
+        setError("Failed to delete item");
+      }
+    }).catch(() => {
       setItems(prev);
       setError("Failed to delete item");
-    }
-  }
+    });
+  }, [items]);
 
-  async function copyToClipboard(text: string, id: string) {
-    try {
-      await navigator.clipboard.writeText(text);
+  const copyToClipboard = useCallback((text: string, id: string) => {
+    navigator.clipboard.writeText(text).then(() => {
       setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = setTimeout(() => setCopied(null), 2000);
+    }).catch(() => {
       setError("Failed to copy");
-    }
-  }
+    });
+  }, []);
 
-  async function toggleRead(id: string, currentState: boolean) {
-    const item = items.find((x) => x.id === id);
-    if (!item) return;
-
+  const toggleRead = useCallback((id: string, currentState: boolean) => {
     // Optimistic update
-    setItems(items.map((x) => (x.id === id ? { ...x, isRead: !currentState } : x)));
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, isRead: !currentState } : x)));
 
-    try {
-      await fetch(`/api/items/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isRead: !currentState }),
-      });
-    } catch {
+    fetch(`/api/items/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isRead: !currentState }),
+    }).catch(() => {
       // Rollback on error
-      setItems(items.map((x) => (x.id === id ? { ...x, isRead: currentState } : x)));
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, isRead: currentState } : x)));
       setError("Failed to update read status");
-    }
-  }
+    });
+  }, []);
 
-  async function toggleFavorite(id: string, currentState: boolean) {
-    const item = items.find((x) => x.id === id);
-    if (!item) return;
-
+  const toggleFavorite = useCallback((id: string, currentState: boolean) => {
     // Optimistic update
-    setItems(items.map((x) => (x.id === id ? { ...x, isFavorite: !currentState } : x)));
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, isFavorite: !currentState } : x)));
 
-    try {
-      await fetch(`/api/items/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isFavorite: !currentState }),
-      });
-    } catch {
+    fetch(`/api/items/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isFavorite: !currentState }),
+    }).catch(() => {
       // Rollback on error
-      setItems(items.map((x) => (x.id === id ? { ...x, isFavorite: currentState } : x)));
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, isFavorite: currentState } : x)));
       setError("Failed to update favorite status");
-    }
-  }
+    });
+  }, []);
 
   const filtered = useMemo(() => {
     let result = items;
 
-    // Filter by search
-    const s = searchInput.trim().toLowerCase();
-    if (s) {
+    // Filter by search - early exit if no search
+    if (searchInputLower) {
       result = result.filter((it) => {
-        const hay = [
-          it.title ?? "",
-          it.description ?? "",
-          it.domain ?? "",
-          it.url ?? "",
-        ]
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(s);
+        const hay = `${it.title ?? ""} ${it.description ?? ""} ${it.domain ?? ""} ${it.url ?? ""}`.toLowerCase();
+        return hay.includes(searchInputLower);
       });
     }
 
-    // Sort
-    const sorted = [...result].sort((a, b) => {
-      switch (sortBy) {
-        case "title":
-          return (a.title ?? "").localeCompare(b.title ?? "");
-        case "domain":
-          return (a.domain ?? "").localeCompare(b.domain ?? "");
-        case "lastRead":
-          return (new Date(b.readAt ?? 0).getTime() - new Date(a.readAt ?? 0).getTime());
-        case "date":
-        default:
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }
-    });
+    // Sort - avoid spread operator for large lists
+    if (sortBy === "title" || sortBy === "domain") {
+      return result.sort((a, b) => {
+        const aVal = sortBy === "title" ? (a.title ?? "") : (a.domain ?? "");
+        const bVal = sortBy === "title" ? (b.title ?? "") : (b.domain ?? "");
+        return aVal.localeCompare(bVal);
+      });
+    }
 
-    return sorted;
-  }, [items, searchInput, sortBy]);
+    if (sortBy === "lastRead") {
+      return result.sort((a, b) => 
+        new Date(b.readAt ?? 0).getTime() - new Date(a.readAt ?? 0).getTime()
+      );
+    }
+
+    // Default: sort by date (most recent first)
+    return result.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [items, searchInputLower, sortBy]);
 
   return (
     <div className="page">
@@ -253,6 +256,7 @@ export default function Home() {
         <div className="actions">
           <div className="searchWrap">
             <input
+              ref={searchInputRef}
               className="input"
               placeholder="Search (title, domain, description)… (⌘K)"
               value={q}
@@ -270,6 +274,28 @@ export default function Home() {
               {theme === "dark" ? "☀️" : "🌙"}
             </span>
           </button>
+
+          <div className="authButtons">
+            {user ? (
+              <>
+                <span className="userEmail">{user.email}</span>
+                <button 
+                  className="btn ghost"
+                  onClick={() => setUser(null)}
+                  title="Logout"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <button 
+                className="btn primary"
+                onClick={() => setAuthOpen(true)}
+              >
+                Login
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -389,6 +415,19 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      <AuthModal
+        isOpen={authOpen}
+        onClose={() => setAuthOpen(false)}
+        onLogin={(email) => {
+          setUser({ email });
+          setAuthOpen(false);
+        }}
+        onSignup={(email) => {
+          setUser({ email });
+          setAuthOpen(false);
+        }}
+      />
     </div>
   );
 }
