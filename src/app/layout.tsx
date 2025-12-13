@@ -1,10 +1,16 @@
 import "./globals.css";
 import { Providers } from "./providers";
+import { Viewport } from "next";
 
 export const metadata = {
   title: "Readlist - Save & Search Links",
   description: "Save links, search fast, read later. A beautiful self-hosted link manager.",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=5",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

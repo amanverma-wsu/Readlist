@@ -9,9 +9,13 @@ type Item = {
   description: string | null;
   image: string | null;
   domain: string | null;
+  isRead: boolean;
+  isFavorite: boolean;
   createdAt: string;
   readAt: string | null;
 };
+
+type SortOption = "date" | "title" | "domain" | "lastRead";
 
 function favicon(domain?: string | null) {
   if (!domain) return null;
@@ -57,6 +61,7 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortOption>("date");
   const searchInput = useDebounce(q, 300);
 
   // theme init
@@ -90,9 +95,18 @@ export default function Home() {
   }, []);
 
   async function refresh() {
-    const res = await fetch("/api/items", { cache: "no-store" });
-    const data = await res.json();
-    setItems(Array.isArray(data) ? data : []);
+    try {
+      const res = await fetch("/api/items", { cache: "no-store" });
+      if (!res.ok) {
+        setError("Failed to load items");
+        return;
+      }
+      const data = await res.json();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error loading items:", err);
+      setError("Failed to load items");
+    }
   }
 
   useEffect(() => {
@@ -148,21 +162,82 @@ export default function Home() {
     }
   }
 
+  async function toggleRead(id: string, currentState: boolean) {
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+
+    // Optimistic update
+    setItems(items.map((x) => (x.id === id ? { ...x, isRead: !currentState } : x)));
+
+    try {
+      await fetch(`/api/items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead: !currentState }),
+      });
+    } catch {
+      // Rollback on error
+      setItems(items.map((x) => (x.id === id ? { ...x, isRead: currentState } : x)));
+      setError("Failed to update read status");
+    }
+  }
+
+  async function toggleFavorite(id: string, currentState: boolean) {
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+
+    // Optimistic update
+    setItems(items.map((x) => (x.id === id ? { ...x, isFavorite: !currentState } : x)));
+
+    try {
+      await fetch(`/api/items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFavorite: !currentState }),
+      });
+    } catch {
+      // Rollback on error
+      setItems(items.map((x) => (x.id === id ? { ...x, isFavorite: currentState } : x)));
+      setError("Failed to update favorite status");
+    }
+  }
+
   const filtered = useMemo(() => {
+    let result = items;
+
+    // Filter by search
     const s = searchInput.trim().toLowerCase();
-    if (!s) return items;
-    return items.filter((it) => {
-      const hay = [
-        it.title ?? "",
-        it.description ?? "",
-        it.domain ?? "",
-        it.url ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(s);
+    if (s) {
+      result = result.filter((it) => {
+        const hay = [
+          it.title ?? "",
+          it.description ?? "",
+          it.domain ?? "",
+          it.url ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(s);
+      });
+    }
+
+    // Sort
+    const sorted = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "title":
+          return (a.title ?? "").localeCompare(b.title ?? "");
+        case "domain":
+          return (a.domain ?? "").localeCompare(b.domain ?? "");
+        case "lastRead":
+          return (new Date(b.readAt ?? 0).getTime() - new Date(a.readAt ?? 0).getTime());
+        case "date":
+        default:
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
     });
-  }, [items, searchInput]);
+
+    return sorted;
+  }, [items, searchInput, sortBy]);
 
   return (
     <div className="page">
@@ -224,7 +299,22 @@ export default function Home() {
           Tip: paste any article/blog link — we’ll auto-grab title + preview.
         </div>
       </section>
-
+      <div className="filterBar">
+        <div className="itemStats">
+          {items.length} item{items.length !== 1 ? "s" : ""} saved
+          {q.trim() && ` · ${filtered.length} found`}
+        </div>
+        <select
+          className="sortSelect"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortOption)}
+        >
+          <option value="date">Newest first</option>
+          <option value="title">By title</option>
+          <option value="domain">By domain</option>
+          <option value="lastRead">Recently read</option>
+        </select>
+      </div>
       <main className="grid">
         {filtered.map((it) => (
           <article key={it.id} className="item card">
@@ -251,6 +341,20 @@ export default function Home() {
               )}
 
               <div className="row">
+                <button 
+                  className={`btn ghost ${it.isFavorite ? "active" : ""}`}
+                  onClick={() => toggleFavorite(it.id, it.isFavorite)}
+                  title={it.isFavorite ? "Favorited" : "Favorite"}
+                >
+                  {it.isFavorite ? "★" : "☆"}
+                </button>
+                <button 
+                  className={`btn ghost ${it.isRead ? "read" : ""}`}
+                  onClick={() => toggleRead(it.id, it.isRead)}
+                  title={it.isRead ? "Read" : "Unread"}
+                >
+                  {it.isRead ? "✓" : "○"}
+                </button>
                 <a className="btn ghost" href={it.url} target="_blank" rel="noreferrer">
                   Open
                 </a>
