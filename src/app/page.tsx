@@ -32,6 +32,23 @@ function useDebounce<T>(value: T, delay: number) {
   return debouncedValue;
 }
 
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
+
+  const parts = text.split(new RegExp(`(${query})`, "gi"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={i}>{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export default function Home() {
   const [items, setItems] = useState<Item[]>([]);
   const [url, setUrl] = useState("");
@@ -169,12 +186,14 @@ export default function Home() {
           </div>
 
           <button
-            className="btn ghost"
+            className="theme-toggle"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             aria-label="Toggle theme"
-            title="Toggle theme"
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
-            {theme === "dark" ? "Light" : "Dark"}
+            <span className="toggle-icon">
+              {theme === "dark" ? "☀️" : "🌙"}
+            </span>
           </button>
         </div>
       </header>
@@ -220,11 +239,13 @@ export default function Home() {
               </div>
 
               <a className="itemTitle" href={it.url} target="_blank" rel="noreferrer">
-                {it.title ?? it.url}
+                <HighlightText text={it.title ?? it.url} query={q} />
               </a>
 
               {it.description ? (
-                <p className="desc">{it.description}</p>
+                <p className="desc">
+                  <HighlightText text={it.description} query={q} />
+                </p>
               ) : (
                 <p className="desc muted">No description found.</p>
               )}
