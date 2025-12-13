@@ -1,64 +1,268 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type Item = {
+  id: string;
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  domain: string | null;
+  createdAt: string;
+  readAt: string | null;
+};
+
+function favicon(domain?: string | null) {
+  if (!domain) return null;
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
+
+function useDebounce<T>(value: T, delay: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 
 export default function Home() {
+  const [items, setItems] = useState<Item[]>([]);
+  const [url, setUrl] = useState("");
+  const [q, setQ] = useState("");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const searchInput = useDebounce(q, 300);
+
+  // theme init
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") as "light" | "dark" | null;
+    const initial =
+      stored ??
+      (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    setTheme(initial);
+    document.documentElement.dataset.theme = initial;
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>(".searchWrap input")?.focus();
+      }
+      if (e.key === "Escape" && document.activeElement?.className.includes("input")) {
+        (document.activeElement as HTMLInputElement).blur();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  async function refresh() {
+    const res = await fetch("/api/items", { cache: "no-store" });
+    const data = await res.json();
+    setItems(Array.isArray(data) ? data : []);
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function saveItem() {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to save URL");
+        return;
+      }
+
+      setUrl("");
+      await refresh();
+    } catch (err) {
+      setError("Failed to save URL. Please try again.");
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteItem(id: string) {
+    const prev = items;
+    setItems(prev.filter((x) => x.id !== id));
+
+    const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setItems(prev);
+      setError("Failed to delete item");
+    }
+  }
+
+  async function copyToClipboard(text: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setError("Failed to copy");
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const s = searchInput.trim().toLowerCase();
+    if (!s) return items;
+    return items.filter((it) => {
+      const hay = [
+        it.title ?? "",
+        it.description ?? "",
+        it.domain ?? "",
+        it.url ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(s);
+    });
+  }, [items, searchInput]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="page">
+      <header className="top">
+        <div className="brand">
+          <div className="logo">R</div>
+          <div>
+            <div className="title">Readlist</div>
+            <div className="subtitle">Save links. Search fast. Read later.</div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        <div className="actions">
+          <div className="searchWrap">
+            <input
+              className="input"
+              placeholder="Search (title, domain, description)… (⌘K)"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </div>
+
+          <button
+            className="btn ghost"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label="Toggle theme"
+            title="Toggle theme"
           >
-            Documentation
-          </a>
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
         </div>
+      </header>
+
+      {error && (
+        <div className="toast error">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="toast-close">×</button>
+        </div>
+      )}
+
+      <section className="composer card">
+        <div className="composerRow">
+          <input
+            className="input"
+            placeholder="Paste a URL…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveItem();
+            }}
+          />
+          <button className="btn primary" onClick={saveItem} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+        <div className="hint">
+          Tip: paste any article/blog link — we’ll auto-grab title + preview.
+        </div>
+      </section>
+
+      <main className="grid">
+        {filtered.map((it) => (
+          <article key={it.id} className="item card">
+            <div className="itemBody">
+              <div className="metaLine">
+                <img className="favicon" src={favicon(it.domain) ?? ""} alt="" />
+                <span className="domain">{it.domain ?? "link"}</span>
+                <span className="dot">•</span>
+                <span className="time">
+                  {new Date(it.createdAt).toLocaleString()}
+                </span>
+              </div>
+
+              <a className="itemTitle" href={it.url} target="_blank" rel="noreferrer">
+                {it.title ?? it.url}
+              </a>
+
+              {it.description ? (
+                <p className="desc">{it.description}</p>
+              ) : (
+                <p className="desc muted">No description found.</p>
+              )}
+
+              <div className="row">
+                <a className="btn ghost" href={it.url} target="_blank" rel="noreferrer">
+                  Open
+                </a>
+                <button 
+                  className="btn ghost"
+                  onClick={() => copyToClipboard(it.url, it.id)}
+                  title="Copy URL"
+                >
+                  {copied === it.id ? "Copied!" : "Copy"}
+                </button>
+                <button className="btn danger" onClick={() => deleteItem(it.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            {it.image ? (
+              <a className="thumbWrap" href={it.url} target="_blank" rel="noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="thumb" src={it.image} alt="" />
+              </a>
+            ) : (
+              <div className="thumbWrap placeholder" />
+            )}
+          </article>
+        ))}
+
+        {!filtered.length && (
+          <div className="empty card">
+            <div className="emptyTitle">No results</div>
+            <div className="emptyText">Try a different search or save a new URL.</div>
+          </div>
+        )}
       </main>
     </div>
   );

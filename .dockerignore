@@ -1,0 +1,21 @@
+# Docker and Node modules
+node_modules/
+.next/
+
+# Environment variables (use .env.local instead)
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+postgres_data/

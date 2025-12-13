@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: readlist-db
+    environment:
+      POSTGRES_USER: readlist_user
+      POSTGRES_PASSWORD: readlist_password
+      POSTGRES_DB: readlist
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U readlist_user -d readlist"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: readlist-app
+    environment:
+      DATABASE_URL: postgresql://readlist_user:readlist_password@postgres:5432/readlist
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
