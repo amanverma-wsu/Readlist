@@ -13,7 +13,8 @@ export async function requireUser() {
   }
 
   // Fallback to Authorization bearer token
-  const authHeader = headers().get("authorization");
+  const headersList = await headers();
+  const authHeader = headersList.get("authorization");
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length)
     : null;
