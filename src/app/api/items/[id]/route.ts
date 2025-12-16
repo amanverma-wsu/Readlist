@@ -48,11 +48,11 @@ export async function PATCH(
     const updates: Partial<typeof items.$inferInsert> = {};
     
     // Only add to updates if explicitly provided and is a boolean
-    if (typeof body.isRead === "boolean") updates.isRead = body.isRead;
-    if (typeof body.isFavorite === "boolean") updates.isFavorite = body.isFavorite;
     if (typeof body.isRead === "boolean") {
+      updates.isRead = body.isRead;
       updates.readAt = body.isRead ? new Date() : null;
     }
+    if (typeof body.isFavorite === "boolean") updates.isFavorite = body.isFavorite;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(

@@ -156,18 +156,18 @@ export function AuthModal({
           </div>
 
           {!showForgotPassword && (
-            <div className="formGroup">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                className="input"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
+          <div className="formGroup">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              className="input"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
           )}
 
           {!isLogin && (
@@ -225,7 +225,7 @@ export function AuthModal({
         </form>
 
         {showForgotPassword ? (
-          <div className="authToggle">
+        <div className="authToggle">
             <p>
               Remember your password?{" "}
               <button
@@ -258,24 +258,24 @@ export function AuthModal({
                 </button>
               </p>
             )}
-            <p>
-              {isLogin ? "Don't have an account?" : "Already have an account?"}
-              <button
-                type="button"
-                className="linkBtn"
-                onClick={() => {
-                  setIsLogin(!isLogin);
-                  setEmail("");
-                  setPassword("");
-                  setConfirmPassword("");
-                  setFormError(null);
+          <p>
+            {isLogin ? "Don't have an account?" : "Already have an account?"}
+            <button
+              type="button"
+              className="linkBtn"
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setEmail("");
+                setPassword("");
+                setConfirmPassword("");
+                setFormError(null);
                   setFormSuccess(null);
-                }}
-              >
-                {isLogin ? "Sign up" : "Login"}
-              </button>
-            </p>
-          </div>
+              }}
+            >
+              {isLogin ? "Sign up" : "Login"}
+            </button>
+          </p>
+        </div>
         )}
       </div>
     </div>

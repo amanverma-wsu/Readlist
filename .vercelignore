@@ -1,0 +1,15 @@
+# Vercel deployment ignore file
+.git
+.gitignore
+README.md
+SETUP.md
+docker-compose.yml
+Dockerfile
+drizzle/
+.env.local
+.env.*.local
+node_modules/
+.next/
+dist/
+build/
+*.log
