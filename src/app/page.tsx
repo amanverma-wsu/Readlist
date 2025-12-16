@@ -194,7 +194,7 @@ export default function Home() {
     };
 
     const { data: subscription } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (event: string, session: any) => {
         if (!active) return;
         const nextUser = session?.user
           ? { id: session.user.id, email: session.user.email ?? "Unknown user" }
