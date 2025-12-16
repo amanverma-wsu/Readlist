@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthModal } from "@/components/auth-modal";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import dynamic from "next/dynamic";
 
 // Disable static prerendering since this is a client-only page that needs browser APIs
 export const dynamic = 'force-dynamic';
