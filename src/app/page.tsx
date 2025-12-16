@@ -5,9 +5,7 @@ import { AuthModal } from "@/components/auth-modal";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 // Disable static prerendering - this page requires browser APIs and Supabase config
-export const revalidate = 0;
 export const dynamic = 'force-dynamic';
-export const dynamicParams = true;
 
 type Item = {
   id: string;
