@@ -1,3 +1,7 @@
+/**
+ * Auth Modal Component
+ * Handles login, signup, and password reset flows
+ */
 "use client";
 
 import { useState, useMemo } from "react";
@@ -11,17 +15,13 @@ interface AuthModalProps {
   loading?: boolean;
 }
 
-interface PasswordRule {
-  name: string;
-  test: (password: string) => boolean;
-}
-
-const PASSWORD_RULES: PasswordRule[] = [
-  { name: "At least 8 characters", test: (p) => p.length >= 8 },
-  { name: "At least one uppercase letter", test: (p) => /[A-Z]/.test(p) },
-  { name: "At least one lowercase letter", test: (p) => /[a-z]/.test(p) },
-  { name: "At least one number", test: (p) => /[0-9]/.test(p) },
-  { name: "At least one special character (!@#$%^&*)", test: (p) => /[!@#$%^&*()_+=\-[\]{};':"\\|,.<>/?]/.test(p) },
+// Password strength requirements
+const PASSWORD_RULES = [
+  { name: "At least 8 characters", test: (p: string) => p.length >= 8 },
+  { name: "At least one uppercase letter", test: (p: string) => /[A-Z]/.test(p) },
+  { name: "At least one lowercase letter", test: (p: string) => /[a-z]/.test(p) },
+  { name: "At least one number", test: (p: string) => /[0-9]/.test(p) },
+  { name: "At least one special character", test: (p: string) => /[!@#$%^&*()_+=\-[\]{};':"\\|,.<>/?]/.test(p) },
 ];
 
 export function AuthModal({

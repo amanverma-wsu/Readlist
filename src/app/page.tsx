@@ -1,12 +1,16 @@
+/**
+ * Readlist - Main Page
+ * A beautiful link saving and reading list app
+ */
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthModal } from "@/components/auth-modal";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-// Disable static prerendering - this page requires browser APIs and Supabase config
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic"; // Requires runtime env vars
 
+// Types
 type Item = {
   id: string;
   url: string;
@@ -21,56 +25,55 @@ type Item = {
 };
 
 type SortOption = "date" | "title" | "domain" | "lastRead";
+type AppUser = { id: string; email: string };
 
-type AppUser = {
-  id: string;
-  email: string;
+// Favicon cache to avoid redundant URL generation
+const faviconCache = new Map<string, string>();
+const getFavicon = (domain?: string | null) => {
+  if (!domain) return null;
+  if (!faviconCache.has(domain)) {
+    faviconCache.set(domain, `https://www.google.com/s2/favicons?domain=${domain}&sz=64`);
+  }
+  return faviconCache.get(domain)!;
 };
 
-const faviconCache = new Map<string, string>();
-
-function favicon(domain?: string | null) {
-  if (!domain) return null;
-  if (faviconCache.has(domain)) return faviconCache.get(domain)!;
-  const url = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-  faviconCache.set(domain, url);
-  return url;
-}
-
-function useDebounce<T>(value: T, delay: number) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
+/** Debounce hook - delays value updates for search optimization */
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    timeoutRef.current = setTimeout(() => setDebouncedValue(value), delay);
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
+    timeoutRef.current = setTimeout(() => setDebounced(value), delay);
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, [value, delay]);
 
-  return debouncedValue;
+  return debounced;
 }
 
+/** Highlights search query matches in text */
 function HighlightText({ text, query }: { text: string; query: string }) {
-  return useMemo(() => {
-    if (!query.trim()) return <>{text}</>;
-    const parts = text.split(new RegExp(`(${query})`, "gi"));
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === query.toLowerCase() ? (
-            <mark key={i}>{part}</mark>
-          ) : (
-            <span key={i}>{part}</span>
-          )
-        )}
-      </>
-    );
-  }, [text, query]);
+  if (!query.trim()) return <>{text}</>;
+  
+  const parts = text.split(new RegExp(`(${query})`, "gi"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase() 
+          ? <mark key={i}>{part}</mark> 
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  );
 }
 
 export default function Home() {
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  // Initialize Supabase client (singleton)
+  const supabase = useMemo(() => {
+    try { return createSupabaseBrowserClient(); } 
+    catch { return null; }
+  }, []);
+
+  // State
   const [items, setItems] = useState<Item[]>([]);
   const [url, setUrl] = useState("");
   const [q, setQ] = useState("");
@@ -84,17 +87,19 @@ export default function Home() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const searchInput = useDebounce(q, 300);
-  const searchInputLower = useMemo(() => searchInput.trim().toLowerCase(), [searchInput]);
+  
+  // Refs
   const searchInputRef = useRef<HTMLInputElement>(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Derived state
+  const searchQuery = useDebounce(q, 300);
+  const searchLower = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
 
-  // theme init - load after mount to prevent hydration mismatch
+  // Theme initialization (after mount to prevent hydration mismatch)
   useEffect(() => {
     const stored = localStorage.getItem("theme") as "light" | "dark" | null;
-    const initial =
-      stored ??
-      (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const initial = stored ?? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     setTheme(initial);
     document.documentElement.dataset.theme = initial;
   }, []);
@@ -104,388 +109,217 @@ export default function Home() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // Surface auth callback messages from /auth/callback
+  // Handle auth callback messages from email verification
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("auth");
     if (!status) return;
 
-    if (status === "confirmed") {
-      setNotice("Email verified! You're signed in.");
-    } else if (status === "callback_error") {
-      setError("We couldn't verify your email link. Please try again.");
-    } else if (status === "missing_code") {
-      setError("The verification link is missing a code.");
-    }
+    if (status === "confirmed") setNotice("Email verified! You're signed in.");
+    else if (status === "callback_error") setError("We couldn't verify your email link.");
+    else if (status === "missing_code") setError("The verification link is missing a code.");
 
+    // Clean URL
     params.delete("auth");
-    const next = params.toString();
-    const nextUrl = `${window.location.pathname}${next ? `?${next}` : ""}`;
-    window.history.replaceState(null, "", nextUrl);
+    window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
   }, []);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (⌘K to focus search)
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if (e.key === "Escape" && document.activeElement instanceof HTMLInputElement) {
-        if ((document.activeElement as HTMLInputElement).className.includes("input")) {
-          (document.activeElement as HTMLInputElement).blur();
-        }
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const refresh = useCallback(
-    async (token?: string) => {
-      const authToken = token ?? accessToken;
-      if (!authToken) {
-        setItems([]);
-        return;
-      }
+  // Fetch user's items from API
+  const refresh = useCallback(async (token?: string) => {
+    const authToken = token ?? accessToken;
+    if (!authToken) { setItems([]); return; }
 
-      try {
-        const res = await fetch("/api/items", {
-          cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
-        });
-        if (!res.ok) {
-          setError("Failed to load items");
-          return;
-        }
-        const data = await res.json();
-        setItems(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error("Error loading items:", err);
-        setError("Failed to load items");
-      }
-    },
-    [accessToken]
-  );
+    try {
+      const res = await fetch("/api/items", {
+        headers: { Authorization: `Bearer ${authToken}` },
+        cache: "no-store",
+      });
+      if (res.ok) setItems(await res.json());
+      else setError("Failed to load items");
+    } catch {
+      setError("Failed to load items");
+    }
+  }, [accessToken]);
 
+  // Initialize session and subscribe to auth changes
   useEffect(() => {
     let active = true;
 
     const initSession = async () => {
-      const { data, error } = await supabase.auth.getSession();
+      const { data } = await supabase.auth.getSession();
       if (!active) return;
 
-      if (error) {
-        console.error("Error getting session", error);
-        setError("Failed to load session");
-        return;
-      }
-
       const session = data.session;
-      const nextUser = session?.user
-        ? { id: session.user.id, email: session.user.email ?? "Unknown user" }
-        : null;
+      const nextUser = session?.user ? { id: session.user.id, email: session.user.email ?? "" } : null;
       setUser(nextUser);
       setAccessToken(session?.access_token ?? null);
-
-      if (session?.access_token) {
-        refresh(session.access_token);
-      } else {
-        setItems([]);
-      }
+      if (session?.access_token) refresh(session.access_token);
+      else setItems([]);
     };
 
-    const { data: subscription } = supabase.auth.onAuthStateChange(
-      (event: string, session: any) => {
-        if (!active) return;
-        const nextUser = session?.user
-          ? { id: session.user.id, email: session.user.email ?? "Unknown user" }
-          : null;
-        setUser(nextUser);
-        setAccessToken(session?.access_token ?? null);
-
-        if (session?.access_token) {
-          refresh(session.access_token);
-        } else {
-          setItems([]);
-        }
-      }
-    );
+    // Listen for auth state changes (login/logout)
+    const { data: subscription } = supabase.auth.onAuthStateChange((event: string, session: any) => {
+      if (!active) return;
+      const nextUser = session?.user ? { id: session.user.id, email: session.user.email ?? "" } : null;
+      setUser(nextUser);
+      setAccessToken(session?.access_token ?? null);
+      session?.access_token ? refresh(session.access_token) : setItems([]);
+    });
 
     initSession();
-
-    return () => {
-      active = false;
-      subscription?.subscription.unsubscribe();
-    };
+    return () => { active = false; subscription?.subscription.unsubscribe(); };
   }, [refresh, supabase]);
 
+  // Save new URL
   const saveItem = useCallback(async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
-
-    if (!accessToken) {
-      setAuthOpen(true);
-      setError("Please log in to save links");
-      return;
-    }
+    if (!accessToken) { setAuthOpen(true); setError("Please log in to save links"); return; }
 
     setSaving(true);
     setError(null);
     try {
       const res = await fetch("/api/items", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ url: trimmed }),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Failed to save URL");
-        return;
-      }
-
+      if (!res.ok) { setError((await res.json()).error || "Failed to save"); return; }
       setUrl("");
       await refresh();
-    } catch (err) {
-      setError("Failed to save URL. Please try again.");
-      console.error(err);
+    } catch {
+      setError("Failed to save URL");
     } finally {
       setSaving(false);
     }
   }, [accessToken, refresh, url]);
 
-  const deleteItem = useCallback(
-    (id: string) => {
-      if (!accessToken) {
-        setAuthOpen(true);
-        setError("Please log in to manage items");
-        return;
-      }
+  // Delete item with optimistic update
+  const deleteItem = useCallback((id: string) => {
+    if (!accessToken) { setAuthOpen(true); return; }
+    const prev = items;
+    setItems(items.filter(x => x.id !== id));
+    fetch(`/api/items/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(res => { if (!res.ok) { setItems(prev); setError("Failed to delete"); } })
+      .catch(() => { setItems(prev); setError("Failed to delete"); });
+  }, [accessToken, items]);
 
-      const prevItems = items;
-      setItems((prev) => prev.filter((x) => x.id !== id));
-
-      fetch(`/api/items/${id}`, { 
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-        .then((res) => {
-          if (!res.ok) {
-            setItems(prevItems);
-            setError("Failed to delete item");
-          }
-        })
-        .catch(() => {
-          setItems(prevItems);
-          setError("Failed to delete item");
-        });
-    },
-    [accessToken, items]
-  );
-
+  // Copy URL to clipboard
   const copyToClipboard = useCallback((text: string, id: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(id);
       if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
       copiedTimeoutRef.current = setTimeout(() => setCopied(null), 2000);
-    }).catch(() => {
-      setError("Failed to copy");
     });
   }, []);
 
-  const toggleRead = useCallback(
-    (id: string, currentState: boolean) => {
-      if (!accessToken) {
-        setAuthOpen(true);
-        setError("Please log in to manage items");
-        return;
-      }
+  // Toggle read status with optimistic update
+  const toggleRead = useCallback((id: string, current: boolean) => {
+    if (!accessToken) { setAuthOpen(true); return; }
+    const prev = items;
+    setItems(items.map(x => x.id === id ? { ...x, isRead: !current, readAt: !current ? new Date().toISOString() : null } : x));
+    fetch(`/api/items/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ isRead: !current }),
+    }).catch(() => { setItems(prev); setError("Failed to update"); });
+  }, [accessToken, items]);
 
-      const prevItems = items;
-      const nextReadAt = !currentState ? new Date().toISOString() : null;
+  // Toggle favorite with optimistic update
+  const toggleFavorite = useCallback((id: string, current: boolean) => {
+    if (!accessToken) { setAuthOpen(true); return; }
+    const prev = items;
+    setItems(items.map(x => x.id === id ? { ...x, isFavorite: !current } : x));
+    fetch(`/api/items/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ isFavorite: !current }),
+    }).catch(() => { setItems(prev); setError("Failed to update"); });
+  }, [accessToken, items]);
 
-      // Optimistic update
-      setItems((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, isRead: !currentState, readAt: nextReadAt } : x))
-      );
-
-      fetch(`/api/items/${id}`, {
-        method: "PATCH",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ isRead: !currentState }),
-      }).catch(() => {
-        // Rollback on error
-        setItems(prevItems);
-        setError("Failed to update read status");
-      });
-    },
-    [accessToken, items]
-  );
-
-  const toggleFavorite = useCallback(
-    (id: string, currentState: boolean) => {
-      if (!accessToken) {
-        setAuthOpen(true);
-        setError("Please log in to manage items");
-        return;
-      }
-
-      const prevItems = items;
-      // Optimistic update
-      setItems((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, isFavorite: !currentState } : x))
-      );
-
-      fetch(`/api/items/${id}`, {
-        method: "PATCH",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ isFavorite: !currentState }),
-      }).catch(() => {
-        // Rollback on error
-        setItems(prevItems);
-        setError("Failed to update favorite status");
-      });
-    },
-    [accessToken, items]
-  );
-
+  // Auth handlers
   const handleLogout = useCallback(async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error("Failed to logout", err);
-      setError("Failed to logout, please try again");
-    } finally {
-      setUser(null);
-      setAccessToken(null);
-      setItems([]);
-    }
+    await supabase.auth.signOut();
+    setUser(null);
+    setAccessToken(null);
+    setItems([]);
   }, [supabase]);
 
-  const handleLogin = useCallback(
-    async (email: string, password: string) => {
-      setAuthLoading(true);
-      setError(null);
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+  const handleLogin = useCallback(async (email: string, password: string) => {
+    setAuthLoading(true);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    setAuthLoading(false);
+    if (error) { setError(error.message); return { error: error.message }; }
+    
+    if (data.session) {
+      setAccessToken(data.session.access_token);
+      setUser({ id: data.session.user.id, email: data.session.user.email ?? "" });
+      await refresh(data.session.access_token);
+    }
+    setAuthOpen(false);
+    return {};
+  }, [refresh, supabase]);
 
-      setAuthLoading(false);
+  const handleSignup = useCallback(async (email: string, password: string) => {
+    setAuthLoading(true);
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    });
+    setAuthLoading(false);
+    if (error) { setError(error.message); return { error: error.message }; }
 
-      if (authError) {
-        setError(authError.message);
-        return { error: authError.message };
-      }
+    if (data.session) {
+      setAccessToken(data.session.access_token);
+      setUser({ id: data.session.user.id, email: data.session.user.email ?? "" });
+      await refresh(data.session.access_token);
+    } else {
+      setNotice("Check your email to confirm your account");
+    }
+    setAuthOpen(false);
+    return {};
+  }, [refresh, supabase]);
 
-      const session = data.session;
-      if (session?.access_token) {
-        setAccessToken(session.access_token);
-        setUser({ id: session.user.id, email: session.user.email ?? "Unknown user" });
-        await refresh(session.access_token);
-      }
-
-      setAuthOpen(false);
-      return {};
-    },
-    [refresh, supabase]
-  );
-
-  const handleSignup = useCallback(
-    async (email: string, password: string) => {
-      setAuthLoading(true);
-      setError(null);
-      const { data, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-
-      setAuthLoading(false);
-
-      if (authError) {
-        setError(authError.message);
-        return { error: authError.message };
-      }
-
-      const session = data.session;
-      if (session?.access_token) {
-        setAccessToken(session.access_token);
-        setUser({ id: session.user.id, email: session.user.email ?? "Unknown user" });
-        await refresh(session.access_token);
-      } else {
-        setError("Check your email to confirm your account");
-      }
-
-      setAuthOpen(false);
-      return {};
-    },
-    [refresh, supabase]
-  );
-
-  const handleForgotPassword = useCallback(
-    async (email: string) => {
-      setAuthLoading(true);
-      setError(null);
-      const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
-      });
-
-      setAuthLoading(false);
-
-      if (authError) {
-        setError(authError.message);
-        return { error: authError.message };
-      }
-
-      return {};
-    },
-    [supabase]
-  );
-
+  const handleForgotPassword = useCallback(async (email: string) => {
+    setAuthLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
+    });
+    setAuthLoading(false);
+    if (error) { setError(error.message); return { error: error.message }; }
+    return {};
+  }, [supabase]);
+  // Filter and sort items
   const filtered = useMemo(() => {
     let result = items;
 
-    // Filter by search - early exit if no search
-    if (searchInputLower) {
-      result = result.filter((it) => {
-        const hay = `${it.title ?? ""} ${it.description ?? ""} ${it.domain ?? ""} ${it.url ?? ""}`.toLowerCase();
-        return hay.includes(searchInputLower);
-      });
-    }
-
-    // Sort - avoid spread operator for large lists
-    if (sortBy === "title" || sortBy === "domain") {
-      return result.sort((a, b) => {
-        const aVal = sortBy === "title" ? (a.title ?? "") : (a.domain ?? "");
-        const bVal = sortBy === "title" ? (b.title ?? "") : (b.domain ?? "");
-        return aVal.localeCompare(bVal);
-      });
-    }
-
-    if (sortBy === "lastRead") {
-      return result.sort((a, b) => 
-        new Date(b.readAt ?? 0).getTime() - new Date(a.readAt ?? 0).getTime()
+    // Search filter
+    if (searchLower) {
+      result = result.filter(it => 
+        `${it.title ?? ""} ${it.description ?? ""} ${it.domain ?? ""} ${it.url}`.toLowerCase().includes(searchLower)
       );
     }
 
-    // Default: sort by date (most recent first)
-    return result.sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  }, [items, searchInputLower, sortBy]);
+    // Sort
+    switch (sortBy) {
+      case "title": return [...result].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? ""));
+      case "domain": return [...result].sort((a, b) => (a.domain ?? "").localeCompare(b.domain ?? ""));
+      case "lastRead": return [...result].sort((a, b) => new Date(b.readAt ?? 0).getTime() - new Date(a.readAt ?? 0).getTime());
+      default: return [...result].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+  }, [items, searchLower, sortBy]);
 
   return (
     <div className="page" suppressHydrationWarning>
@@ -606,7 +440,7 @@ export default function Home() {
             <div className="itemBody">
               <div className="metaLine">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="favicon" src={favicon(it.domain) ?? ""} alt="" />
+                <img className="favicon" src={getFavicon(it.domain) ?? ""} alt="" />
                 <span className="domain">{it.domain ?? "link"}</span>
                 <span className="dot">•</span>
                 <span className="time">

@@ -19,7 +19,14 @@ const PASSWORD_RULES: PasswordRule[] = [
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const supabase = useMemo(() => {
+    try {
+      return createSupabaseBrowserClient();
+    } catch (e) {
+      console.error("Failed to initialize Supabase:", e);
+      return null;
+    }
+  }, []);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

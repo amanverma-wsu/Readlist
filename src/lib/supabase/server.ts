@@ -1,3 +1,7 @@
+/**
+ * Supabase Server Client
+ * Creates a server-side client with cookie-based session management
+ */
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
@@ -12,18 +16,14 @@ export async function createSupabaseServerClient() {
 
   return createServerClient(url, key, {
     cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
+      getAll: () => cookieStore.getAll(),
+      setAll: (cookiesToSet) => {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // The `setAll` method was called from a Server Component.
-          // This can be ignored if you have middleware refreshing
-          // user sessions.
+          // Ignore errors from Server Components (middleware handles refresh)
         }
       },
     },

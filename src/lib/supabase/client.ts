@@ -1,18 +1,27 @@
+/**
+ * Supabase Browser Client
+ * Creates a singleton client for client-side auth operations
+ */
 import { createBrowserClient } from "@supabase/ssr";
 
+let supabaseClient: ReturnType<typeof createBrowserClient> | null = null;
+
 export function createSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+  // SSR guard - return null during server-side rendering
+  if (typeof window === "undefined") return null as any;
 
-  // During build time, these might not be available - that's okay for client-only code
-  if (typeof window === 'undefined') {
-    return null as any;
+  // Return cached instance to avoid recreating client
+  if (supabaseClient) return supabaseClient;
+
+  // Config injected by layout.tsx at runtime
+  const url = (window as any).__SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = (window as any).__SUPABASE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase configuration");
   }
 
-  if (!url || url === 'https://placeholder.supabase.co' || !key || key === 'placeholder-key') {
-    throw new Error("Missing or invalid Supabase environment variables");
-  }
-
-  return createBrowserClient(url, key);
+  supabaseClient = createBrowserClient(url, key);
+  return supabaseClient;
 }
 

@@ -1,9 +1,13 @@
-import "dotenv/config";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+/**
+ * Database Connection
+ * Uses postgres.js with Supabase Pooler for serverless compatibility
+ */
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL!,
-});
+const connectionString = process.env.DATABASE_URL!;
 
-export const db = drizzle(pool);
+// Serverless-optimized: prepare=false required for Supabase transaction pooler
+const client = postgres(connectionString, { prepare: false });
+
+export const db = drizzle(client);
