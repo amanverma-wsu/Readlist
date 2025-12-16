@@ -32,6 +32,13 @@ Copy `.env.example` to `.env.local` and add your PostgreSQL connection string:
 cp .env.example .env.local
 ```
 
+Add your Supabase credentials (Project Settings → API):
+
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
+
 **If using Docker:**
 ```
 DATABASE_URL=postgresql://readlist_user:readlist_password@postgres:5432/readlist

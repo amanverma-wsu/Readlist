@@ -5,8 +5,10 @@ import { useState, useMemo } from "react";
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: (email: string, password: string) => void;
-  onSignup: (email: string, password: string) => void;
+  onLogin: (email: string, password: string) => Promise<{ error?: string } | void>;
+  onSignup: (email: string, password: string) => Promise<{ error?: string } | void>;
+  onForgotPassword?: (email: string) => Promise<{ error?: string } | void>;
+  loading?: boolean;
 }
 
 interface PasswordRule {
@@ -27,11 +29,17 @@ export function AuthModal({
   onClose,
   onLogin,
   onSignup,
+  onForgotPassword,
+  loading,
 }: AuthModalProps) {
   const [isLogin, setIsLogin] = useState(true);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const passwordRulesMet = useMemo(() => {
     return PASSWORD_RULES.map((rule) => ({
@@ -45,30 +53,64 @@ export function AuthModal({
   const canSubmit = isLogin 
     ? email && password 
     : email && allRulesMet && passwordsMatch;
+  const isBusy = submitting || !!loading;
 
   const handleClose = () => {
     setEmail("");
     setPassword("");
     setConfirmPassword("");
+    setFormError(null);
+    setFormSuccess(null);
     setIsLogin(true);
+    setShowForgotPassword(false);
     onClose();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!canSubmit) return;
+    if (showForgotPassword) {
+      if (!email || isBusy || !onForgotPassword) return;
+      setSubmitting(true);
+      setFormError(null);
+      setFormSuccess(null);
 
-    if (isLogin) {
-      onLogin(email, password);
-    } else {
-      onSignup(email, password);
+      const result = await onForgotPassword(email);
+      if (result && "error" in result && result.error) {
+        setFormError(result.error);
+        setSubmitting(false);
+        return;
+      }
+
+      setFormSuccess("Password reset email sent! Check your inbox.");
+      setSubmitting(false);
+      return;
+    }
+
+    if (!canSubmit || isBusy) return;
+
+    setSubmitting(true);
+    setFormError(null);
+    setFormSuccess(null);
+
+    const result = isLogin
+      ? await onLogin(email, password)
+      : await onSignup(email, password);
+
+    if (result && "error" in result && result.error) {
+      setFormError(result.error);
+      setSubmitting(false);
+      return;
     }
 
     setEmail("");
     setPassword("");
     setConfirmPassword("");
     setIsLogin(true);
+
+    // Parent closes modal on success, but close locally as well to reset state
+    handleClose();
+    setSubmitting(false);
   };
 
   if (!isOpen) return null;
@@ -83,9 +125,17 @@ export function AuthModal({
         <button className="closeBtn" onClick={handleClose}>×</button>
 
         <div className="authHeader">
-          <h2>{isLogin ? "Login" : "Create Account"}</h2>
+          <h2>
+            {showForgotPassword
+              ? "Reset Password"
+              : isLogin
+              ? "Login"
+              : "Create Account"}
+          </h2>
           <p className="subtitle">
-            {isLogin
+            {showForgotPassword
+              ? "Enter your email to receive a password reset link"
+              : isLogin
               ? "Welcome back to Readlist"
               : "Join Readlist to save your links"}
           </p>
@@ -98,25 +148,27 @@ export function AuthModal({
               id="email"
               type="email"
               className="input"
-              placeholder="Raghav@gandu.com"
+              placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
 
-          <div className="formGroup">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              className="input"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
+          {!showForgotPassword && (
+            <div className="formGroup">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                className="input"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+          )}
 
           {!isLogin && (
             <>
@@ -150,28 +202,81 @@ export function AuthModal({
             </>
           )}
 
-          <button type="submit" className="btn primary" style={{ width: "100%" }} disabled={!canSubmit}>
-            {isLogin ? "Login" : "Sign Up"}
+          <button
+            type="submit"
+            className="btn primary"
+            style={{ width: "100%" }}
+            disabled={
+              showForgotPassword
+                ? !email || isBusy
+                : !canSubmit || isBusy
+            }
+          >
+            {isBusy
+              ? "Working…"
+              : showForgotPassword
+              ? "Send Reset Link"
+              : isLogin
+              ? "Login"
+              : "Sign Up"}
           </button>
+          {formError && <p className="errorText" style={{ marginTop: "8px" }}>{formError}</p>}
+          {formSuccess && <p className="successText" style={{ marginTop: "8px" }}>{formSuccess}</p>}
         </form>
 
-        <div className="authToggle">
-          <p>
-            {isLogin ? "Don't have an account?" : "Already have an account?"}
-            <button
-              type="button"
-              className="linkBtn"
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setEmail("");
-                setPassword("");
-                setConfirmPassword("");
-              }}
-            >
-              {isLogin ? "Sign up" : "Login"}
-            </button>
-          </p>
-        </div>
+        {showForgotPassword ? (
+          <div className="authToggle">
+            <p>
+              Remember your password?{" "}
+              <button
+                type="button"
+                className="linkBtn"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setFormError(null);
+                  setFormSuccess(null);
+                }}
+              >
+                Back to Login
+              </button>
+            </p>
+          </div>
+        ) : (
+          <div className="authToggle">
+            {isLogin && (
+              <p style={{ marginBottom: "8px" }}>
+                <button
+                  type="button"
+                  className="linkBtn"
+                  onClick={() => {
+                    setShowForgotPassword(true);
+                    setFormError(null);
+                    setFormSuccess(null);
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </p>
+            )}
+            <p>
+              {isLogin ? "Don't have an account?" : "Already have an account?"}
+              <button
+                type="button"
+                className="linkBtn"
+                onClick={() => {
+                  setIsLogin(!isLogin);
+                  setEmail("");
+                  setPassword("");
+                  setConfirmPassword("");
+                  setFormError(null);
+                  setFormSuccess(null);
+                }}
+              >
+                {isLogin ? "Sign up" : "Login"}
+              </button>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { items } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
+import { requireUser } from "@/lib/auth";
 
 // Compile regex patterns once for better performance
 const OG_TITLE_REGEX = /<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i;
@@ -64,6 +65,11 @@ async function fetchMetadata(url: string) {
 
 export async function POST(req: Request) {
   try {
+    const { user } = await requireUser();
+    if (!user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const url = String(body?.url ?? "");
 
@@ -84,6 +90,7 @@ export async function POST(req: Request) {
     const [row] = await db
       .insert(items)
       .values({
+        userId: user.id,
         url,
         domain,
         title: metadata.title || null,
@@ -101,7 +108,16 @@ export async function POST(req: Request) {
 
 export async function GET() {
   try {
-    const rows = await db.select().from(items).orderBy(desc(items.createdAt));
+    const { user } = await requireUser();
+    if (!user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const rows = await db
+      .select()
+      .from(items)
+      .where(eq(items.userId, user.id))
+      .orderBy(desc(items.createdAt));
     return NextResponse.json(rows, { 
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
