@@ -253,21 +253,3 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 # Database
 DATABASE_URL=
 ```
-
-## Browser Support
-
-- Chrome/Edge: Latest 2 versions
-- Firefox: Latest 2 versions
-- Safari: Latest 2 versions
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests.
-
-## Support
-
-For issues and questions, please open an issue on GitHub.
