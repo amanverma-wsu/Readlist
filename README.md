@@ -2,6 +2,8 @@
 
 A modern, full-featured web application for saving and managing your reading list. Save links, extract metadata, organize articles, and track your reading progress with an intuitive interface powered by Next.js, React, and PostgreSQL.
 
+## Live-project: https://www.readlist.lol/
+
 ## Features
 
 - Save and organize links from across the web
