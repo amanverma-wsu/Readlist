@@ -109,7 +109,7 @@ npm run db:push
 npm run dev
 ```
 
-Open https://readlist.lol/
+Open http://localhost:3000
 
 ## Available Scripts
 
