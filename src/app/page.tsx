@@ -37,6 +37,36 @@ const getFavicon = (domain?: string | null) => {
   return faviconCache.get(domain)!;
 };
 
+/** Maps Supabase auth error messages to user-friendly messages */
+const getAuthErrorMessage = (errorMessage: string): string => {
+  const lowerMsg = errorMessage.toLowerCase();
+  
+  // Leaked password detection (HaveIBeenPwned)
+  if (lowerMsg.includes("leaked") || lowerMsg.includes("pwned") || lowerMsg.includes("breach") || lowerMsg.includes("compromised")) {
+    return "This password was found in a data breach. Please choose a different, more secure password.";
+  }
+  
+  // Common auth errors
+  if (lowerMsg.includes("invalid login credentials") || lowerMsg.includes("invalid email or password")) {
+    return "Invalid email or password. Please try again.";
+  }
+  if (lowerMsg.includes("email not confirmed")) {
+    return "Please check your email and click the confirmation link before logging in.";
+  }
+  if (lowerMsg.includes("user already registered") || lowerMsg.includes("already exists")) {
+    return "An account with this email already exists. Try logging in instead.";
+  }
+  if (lowerMsg.includes("password") && lowerMsg.includes("weak")) {
+    return "Password is too weak. Please use a stronger password with mixed characters.";
+  }
+  if (lowerMsg.includes("rate limit") || lowerMsg.includes("too many requests")) {
+    return "Too many attempts. Please wait a few minutes before trying again.";
+  }
+  
+  // Return original message if no match
+  return errorMessage;
+};
+
 /** Debounce hook - delays value updates for search optimization */
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -261,7 +291,11 @@ export default function Home() {
     setAuthLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setAuthLoading(false);
-    if (error) { setError(error.message); return { error: error.message }; }
+    if (error) { 
+      const friendlyError = getAuthErrorMessage(error.message);
+      setError(friendlyError); 
+      return { error: friendlyError }; 
+    }
     
     if (data.session) {
       setAccessToken(data.session.access_token);
@@ -279,7 +313,11 @@ export default function Home() {
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     });
     setAuthLoading(false);
-    if (error) { setError(error.message); return { error: error.message }; }
+    if (error) { 
+      const friendlyError = getAuthErrorMessage(error.message);
+      setError(friendlyError); 
+      return { error: friendlyError }; 
+    }
 
     if (data.session) {
       setAccessToken(data.session.access_token);
