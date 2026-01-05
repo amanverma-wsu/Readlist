@@ -4,7 +4,7 @@ A modern, full-featured web application for saving and managing your reading lis
 
 ## Live-project: https://www.readlist.lol/
 
-## Features
+### Features
 
 - Save and organize links from across the web
 - Automatic metadata extraction (title, description, Open Graph images)
